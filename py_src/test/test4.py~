@@ -1,0 +1,6 @@
+from tqdm import tqdm
+
+cachesize=2
+it=xrange(7):
+
+for x in next(it) for _ in range(cachesize)

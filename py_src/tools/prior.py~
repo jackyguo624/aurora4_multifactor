@@ -1,0 +1,22 @@
+from ..utils import kaldi_io
+import math
+import numpy as np
+
+ali_input = 'ali-to-pdf exp/tri5c_clean/final.mdl ark:"gunzip -c  exp/tri5c_clean/ali.1.gz |" ark,t:- |'
+output='./prior.dat'
+
+count=0
+stats = np.zeros(2787)
+
+
+ali = kaldi_io.read_ali_ark(ali_input)
+
+
+for k, v in ali:
+    count += len(v)
+    for p in v:
+            stats[p]=stats[p] + 1
+
+stats = np.log(stats /  count)
+print(stats)
+np.savetxt(output, stats, fmt='%.8f')

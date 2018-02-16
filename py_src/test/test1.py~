@@ -1,0 +1,5 @@
+import numpy as np
+
+prior = np.loadtxt('./prior.dat')
+
+print(prior)

@@ -1,0 +1,6 @@
+file1='copy-feats scp,o,s:data-fbank-64d-25ms-cms-dump-fixpath/train_si84_multi/feats.scp ark:- |'
+file2='copy-feats scp,o,s:data-fbank-64d-25ms-cms-dump-fixpath/train_si84_clean/feats.scp ark:- |'
+
+
+fd1 = popen(file1[:-1], 'rb') 
+fd2 = popen(file2[:-1], 'rb')

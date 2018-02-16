@@ -1,0 +1,231 @@
+# -*- coding: utf-8 -*-
+# @Author: richman
+# @Date:   2017-10-23 20:47:21
+# @Last Modified by:   Jiaqi guo
+# @Last Modified time: 2018-01-18 13:44:21
+import os
+import numpy as np
+import torch
+from ..utils import kaldi_io
+import itertools
+from torch.utils.data import TensorDataset
+import torch.multiprocessing as multiprocessing
+from torch.utils.data import DataLoader
+import logging
+
+
+flog = open('/mnt/lustre/sjtu/users/jqg01/asr/aurora4/readprocessing.log',mode='a')
+
+# Fetches a cache ( e.g. some frames from a stream ). Used as a background
+# process
+def _fetch_cache(datastream, index_queue, data_queue, labels, nFinished, nj, batchsize, shuffle=False):
+    filehandler = logging.FileHandler('/mnt/lustre/sjtu/users/jqg01/asr/aurora4/readprocessing.log',mode='w')
+    logger=multiprocessing.log_to_stderr()
+    logger.addHandler(filehandler)
+    logger.setLevel(logging.DEBUG)
+
+    while True:
+        # Use None as breaking indicator for both queues
+        cachesize = index_queue.get()
+        logger.info(cachesize)
+        flog.write(str(cachesize)+'\n')
+        flog.flush()
+        '''if cachesize is None:
+            data_queue.put(None)
+            break'''
+        try:
+            if labels is None:
+                feats, targets = zip(*[(v, np.array([1]*len(v))) for k, v in (next(datastream)
+                                                        for _ in range(cachesize))])
+            else:
+                feats, targets = zip(*[(v,labels[k]) for k, v in (next(datastream)
+                                                        for _ in range(cachesize)) if k in labels])
+
+        # Finished iterating over the dataset, two cases:
+        # 1. Last element has been reached and data is nonempty
+        # 2. Last element has been reached and data is empty
+        # The second case will be catched in ValueError
+
+        except StopIteration as e:
+            # Just return the data
+            logger.error(e)
+            flog.write(e)
+            flog.flush()
+            raise (e)
+            nFinished.value = nFinished.value + 1
+            logger.error('current nFinished: '+ str(nFinished.value))
+            break
+        # Returns Value error, if zip fails (list is empty, thus no data)
+        except ValueError as e:
+            logger.error(e)
+            flog.write(e)
+            flog.flush()
+            raise(e)
+            nFinished.value = nFinished.value + 1
+            logger.error('current nFinished:'+str(nFinished.value))
+            if nFinished.value == nj:
+                data_queue.put(None)
+            break
+
+        assert feats is not None, "Check the labels!"
+
+        # No features to return, just tell the iterator its finished
+        feats = np.concatenate(feats)
+        # Assuming multiple labels for each feature, targets has size 2xDATA ->
+        # DATAx2
+        
+        targets = np.concatenate(targets)
+        tnetdataset = TensorDataset(torch.from_numpy(feats),
+                                    torch.from_numpy(targets).long())
+
+        dataloader = DataLoader(
+            tnetdataset, batch_size=batchsize,
+            shuffle=shuffle, drop_last=False)
+        data_queue.put(dataloader)
+
+
+def parse_countsfile(countsfile):
+        if isinstance(countsfile, str):
+            with open(countsfile) as countsfileiter:
+                res_dict = {k: int(v) for k, v in (
+                    l.rstrip('\n').split() for l in countsfileiter)}
+        else:
+            res_dict = {k: int(v) for k, v in (
+                l.rstrip('\n').split() for l in countsfile)}
+        return res_dict
+
+def makefeatstring(splitroot, x, context=0, deltas=False):
+    header="copy-feats scp,p:"+splitroot
+    featstring=os.path.join(header,str(x),'feats.scp')
+    featstring+= " ark:- |"
+    if context != 0:
+        featstring += " splice-feats --left-context={lc} --right-context={rc}  ark:- ark:- |".format(lc=context, rc=context)
+    if deltas:
+        featstring += " add-deltas ark:- ark:- |"
+    return featstring
+
+
+class KaldiStreamDataloader(object):
+    """docstring for  KaldiStreamDataloader"""
+
+    def __init__(self, splitdataroot, labels, num_outputs, cachesize=20, batchsize=256, shuffle=False):
+        super(KaldiStreamDataloader, self).__init__()
+        self.labels = labels
+        self.cachesize = cachesize
+        self.batchsize = batchsize
+        self.shuffle = shuffle
+        self.splitdataroot=splitdataroot
+        self.num_outputs = num_outputs
+        self.nj = int(splitdataroot[-1]) if splitdataroot[-1] != '/' else int(splitdataroot[-2])
+        
+        self.lengths={}
+        self.num_caches=0
+        for x in range(1, self.nj+1):
+            countsfile=os.path.join(self.splitdataroot,str(x),"counts.ark")
+            res_dict = parse_countsfile(countsfile)
+            self.num_caches += int(
+                max(np.ceil(1. * len(res_dict) / self.cachesize), 1))
+            self.lengths.update(res_dict)
+
+        
+        # At least one cache needs to be processed
+        self.cachestartidx = [self.cachesize *
+                              i for i in range(self.num_caches)]
+        self.nsamples = sum(self.lengths.values())
+        # Take the first sample from the data and use it as dim reference
+        # key, feat = next(kaldi_io.read_mat_ark(self.stream))
+        # self.inputdim = feat.shape[-1]
+
+        
+
+    def __iter__(self):
+        return itertools.chain.from_iterable(KaldiStreamIter(self))
+
+    def __len__(self):
+        return self.num_caches
+
+
+class KaldiStreamIter(object):
+    """
+            Stream iterator for Kaldi based features
+            This iterator needs the KaldiDataloader as its argument
+    """
+
+    def __init__(self, loader):
+        super(KaldiStreamIter, self).__init__()
+        self.splitdataroot = loader.splitdataroot
+        self.lengths = loader.lengths
+        self.cachesize = loader.cachesize
+        self.nj = loader.nj
+        self.labels = loader.labels
+        self.shuffle = loader.shuffle
+        self.batchsize = loader.batchsize
+        self.nsamples = loader.nsamples
+        self.num_caches = len(loader)
+        self.cachestartidx = loader.cachestartidx
+        self.idx = 0
+        self.nFinished = multiprocessing.Value('i', 0)
+        self.startWork()
+
+    def _submitjob(self):
+        self.idx += 1
+        self.index_queue.put(self.cachesize)
+
+    def startWork(self):
+        self.data_queue = multiprocessing.SimpleQueue()
+        self.index_queue = multiprocessing.SimpleQueue()
+        
+        self.workers =[
+            multiprocessing.Process(
+                target=_fetch_cache, 
+                args=(
+                    kaldi_io.read_mat_ark(
+                        makefeatstring(self.splitdataroot, i, context=5, deltas=True)), 
+                    self.index_queue, self.data_queue, 
+                    self.labels, self.nFinished, self.nj,
+                    self.batchsize, self.shuffle
+                )
+            ) 
+            for i in range(1,self.nj+1)
+        ]
+        for i in range(self.nj):
+            # start worker and submit an empty slot for each 
+            self.workers[i].start()
+            self._submitjob()
+
+    def _shutdown(self):
+        #self.index_queue.put(None)
+        for i in range(self.nj):
+            self.workers[i].join()
+        for i in range(self.nj):
+            self.workers[i].terminate()
+        # Use -1 as flag for stopiteration
+        self.idx = -1
+
+    def __del__(self):
+        self._shutdown()
+
+    def __len__(self):
+        return self.nsamples
+
+    def __next__(self):
+        try:
+            # Queue is synchronized, thus will block
+            res = self.data_queue.get()
+            if not res:
+                raise StopIteration
+            self._submitjob()
+            if self.nFinished == self.nj:
+                # All fetching process complete
+                logger.info('all complete shuting down')
+                print('all complete shuting down')                
+                self._shutdown()
+            return res
+        except KeyboardInterrupt:
+            self._shutdown()
+            raise StopIteration
+
+    next = __next__  # Python 2 compability
+
+    def __iter__(self):
+        return self

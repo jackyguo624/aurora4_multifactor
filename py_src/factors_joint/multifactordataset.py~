@@ -1,0 +1,14 @@
+from torch.utils.data.dataset import Dataset
+
+
+class MultifactorDataset(Dataset):
+    '''This Dataset wrap 
+       feature: multi-feats
+       targets: spk_id, phone_id, clean-feats
+    '''
+    def __init__(self, feat_tensor, target_tensor, spk_id_tensor, 
+                 phone_id_tensor, clean_feats_tensor)
+        assert feat_tensor.size(0) == target_tensor.size(0)
+        assert feat_tensor.size(0) == spk_id_tensor.size(0)
+        assert feat_tensor.size(0) == phone_id_tensor.size(0)
+        assert feat_tensor.size(0) == clean_feats_tensor.size(0)

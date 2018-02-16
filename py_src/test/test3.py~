@@ -1,0 +1,7 @@
+from torch.utils.data import dataset, dataloader
+import torch
+a = torch.FloatTensor(2,3)
+
+b = torch.FloatTensor(2,3)
+
+c = torch.IntTensor(2,1)

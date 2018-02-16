@@ -1,0 +1,15 @@
+import torch
+import argparse
+
+
+
+
+def parse_arg():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("feats", type=kaldi_mat_ark_stream)
+    parser.add_argument("modelpath", type=argparse.FileType("r"))
+    
+
+
+def main():
+    pass
