@@ -1,4 +1,0 @@
-#!/bin/bash
-
-
-OUTPUTDIM=`am-info exp/tri5c_multi_ali_si84/final.mdl | grep 'pdfs' | awk '{print $4}'`

@@ -1,43 +1,29 @@
 #!/bin/bash
 
-#SBATCH -o log/aurora4-dnn-multifactor.%j.log
-#SBATCH -e elog/aurora4-dnn-multifactor.%j.log
-#SBATCH -p gpuq/sjtu --gres=gpu:1
-#SBATCH --mem=20G
+#SBATCH -o log/multifactor-dnn.%j.log
+#SBATCH -e elog/multifactor-dnn.%j.log
+#SBATCH -p 3gpuq --gres=gpu:1
+#SBATCH --mem=30G
 # #SBATCH --sockets-per-node=2 
 # #SBATCH --cores-per-socket=10
 # #SBATCH --threads-per-core=2
-#SBATCH -w cherry
-
-#####         Make Pipefile for INPUT       #####
-
-TRAINDATA="traindata_pipe"
-FBK_LABEL="cleandata_pipe"
-
-rm $TRAINDATA
-rm $FBK_LABEL
-
-mkfifo $TRAINDATA
-mkfifo $FBK_LABEL
-
+#SBATCH -w suqian
 
 #####                   Data                #####
 data_dir="data-fbank-64d-25ms-cms-dump-fixpath"
 train_data="train_si84_multi"
 clean_data="train_si84_clean"
 dev_data="dev_0330"
-use_small="small_"
+# use_small="small_"
 
 DELTAS="add-deltas ark:- ark:-"
 FEXT="splice-feats --left-context=5 --right-context=5  ark:- ark:-"
 
 
-copy-feats scp:$data_dir/$train_data/${use_small}feats.scp ark:- | $FEXT | $DELTAS > $TRAINDATA &
 
+TRAINDATA="copy-feats scp:$data_dir/$train_data/${use_small}feats.scp ark:- | $FEXT | $DELTAS|"
+CVDATA="copy-feats scp:$data_dir/${dev_data}/${use_small}feats.scp ark:- | $FEXT | $DELTAS|"
 
-
-TRAINDATA="copy-feats scp:$data_dir/$train_data/${use_small}feats.scp ark:- | $FEXT |$DELTAS |"
-CVDATA="copy-feats scp:$data_dir/${dev_data}/${use_small}feats.scp ark:- | $FEXT |$DELTAS |"
 
 #####                   Label               #####
 
@@ -51,7 +37,9 @@ CVLABEL="ali-to-pdf  $exp/$dev_ali/final.mdl 'ark:gunzip -c $exp/$dev_ali/ali.*.
 # Factor Label
 SPK_LABEL="copy-align ark:data-fbank-64d-25ms-cms-dump-fixpath/train_si84_multi/spk_ali.ark ark,t:- |"
 PHN_LABEL="copy-align  ark:data-fbank-64d-25ms-cms-dump-fixpath/train_si84_multi/phone.tra ark,t:- |"
-copy-feats scp:$data_dir/$clean_data/${use_small}feats.scp ark:- | $FEXT | $DELTAS > $FBK_LABEL &
+#copy-feats scp:$data_dir/$clean_data/${use_small}feats.scp ark:- | $FEXT | $DELTAS > $FBK_LABEL &
+
+FBK_LABEL="copy-feats scp:$data_dir/$clean_data/${use_small}feats.scp ark:- | $FEXT | $DELTAS|"
 
 SPK_DIM=`wc -l $data_dir/$train_data/speaker_id | awk '{print $1+1}'`
 PHN_DIM=`am-info $exp/$train_ali/final.mdl | grep phones|awk '{print $4}'`
@@ -68,22 +56,26 @@ CVCOUNTS=$data_dir/$dev_data/${use_small}counts.ark
 INPUTDIM=`echo "64*11*3" | bc` 
 OUTPUTDIM=`am-info $exp/$train_ali/final.mdl | grep 'pdfs' | awk '{print $4}'`
 
+mode=1
 
 #####                   Miscellaneous               #####
-MEANVAR="$data_dir/$train_data/mean_var.dat"
-OUTPUT="exp_new/si84-dnn-multifactor"
+MEANVAR="$data_dir/$train_data/mean_stde11.dat"
+OUTPUT="exp_new/si84-dnn-multifactor/mode$mode"
 PRETRAIN_DIR="exp_new/si84-dnn-multifactor/checkpoint.th"
 
+
 #####                   Training                    #####
+echo "###################"
+echo "It's in mode $mode." 
+echo "###################"
+
 /mnt/lustre/sjtu/users/jqg01/anaconda3/bin/python -m py_src.factors_joint.train \
 "$TRAINDATA" "$TRAINLABEL" "$CVDATA" "$CVLABEL" "$TRAINCOUNTS" "$CVCOUNTS" \
 --spk_label "$SPK_LABEL" --spkdim "$SPK_DIM"  \
 --phone_label "$PHN_LABEL" --phndim "$PHN_DIM" \
 --fbank64_label "$FBK_LABEL" --fbankdim "$FBK_DIM" \
 --inputdim "$INPUTDIM" --outputdim "$OUTPUTDIM" --spkdim $SPK_DIM --phndim $PHN_DIM \
---fbankdim $FBK_DIM --meanvar "$MEANVAR"  -lr 1e-2 -e 100 -o "$OUTPUT"
+--fbankdim $FBK_DIM --mode $mode --meanvar "$MEANVAR"  -lr 1e-4 -e 50 -o "$OUTPUT"
 
 
-#####                   Clean up                    #####
-rm $TRAINDATA
-rm $FBK_LABEL
+

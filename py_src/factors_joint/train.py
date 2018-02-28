@@ -130,7 +130,7 @@ def main():
     epochsize = int(traindataloader.nsamples * 1.0 / args.batchsize)
     cvsize = int(cvdataloader.nsamples * 1. // args.batchsize)
     engine = tnt.engine.Engine()
-    ce = torch.nn.CrossEntropyLoss()
+    ce = torch.nn.CrossEntropyLoss(size_average=False)
     mse = torch.nn.MSELoss()
     #optimizer = torch.optim.Adam(model.parameters(), lr=args.learningrate, weight_decay=1e-8)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.learningrate, momentum=0.9, weight_decay=1e-8)
@@ -198,6 +198,7 @@ def main():
         return {'loss': loss, 'acc': acc}, outputs
 
     def reset_meters():
+        time_meter.reset()
         meter_acc.reset()
         meter_loss.reset()
         meter_loss_f0.reset()
@@ -209,6 +210,8 @@ def main():
     def on_start(state):
         state['best_acc'] = state[
             'best_acc'] if 'best_acc' in state else 0.
+        state['best_loss'] = state[
+            'best_loss'] if 'best_loss' in state else 1e30
 
     def on_end_epoch(state):
         # Output trainmessge
@@ -232,8 +235,10 @@ def main():
         sched.step(loss)
 
         # save model
-        isbest = acc > state['best_acc']
-        state['best_acc'] = acc if isbest else state['best_acc']
+        # isbest = acc > state['best_acc']
+        # state['best_acc'] = acc if isbest else state['best_acc']
+        isbest = loss < state['best_loss']
+        state['best_loss'] = loss if isbest else state['best_loss']
         save_checkpoint({
             'model': model,
             'epoch': state['epoch']

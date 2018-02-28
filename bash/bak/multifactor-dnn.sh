@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH -o log/aurora4-dnn-multifactor.%j.log
-#SBATCH -e elog/aurora4-dnn-multifactor.%j.log
+#SBATCH -o log/multifactor-dnn.%j.log
+#SBATCH -e elog/multifactor-dnn.%j.log
 #SBATCH -p 3gpuq --gres=gpu:1
-#SBATCH --mem=20G
+#SBATCH --mem=30G
 # #SBATCH --sockets-per-node=2 
 # #SBATCH --cores-per-socket=10
 # #SBATCH --threads-per-core=2
@@ -83,7 +83,7 @@ echo "###################"
 --phone_label "$PHN_LABEL" --phndim "$PHN_DIM" \
 --fbank64_label "$FBK_LABEL" --fbankdim "$FBK_DIM" \
 --inputdim "$INPUTDIM" --outputdim "$OUTPUTDIM" --spkdim $SPK_DIM --phndim $PHN_DIM \
---fbankdim $FBK_DIM --mode $mode --meanvar "$MEANVAR"  -lr 1e-2 -e 100 -o "$OUTPUT"
+--fbankdim $FBK_DIM --mode $mode --meanvar "$MEANbVAR"  -lr 1e-2 -e 100 -o "$OUTPUT"
 
 
 

@@ -7,7 +7,7 @@
 # #SBATCH --sockets-per-node=2 
 # #SBATCH --cores-per-socket=10
 # #SBATCH --threads-per-core=2
-# #SBATCH -w kunshan
+#SBATCH -w kunshan
 
 #####         Make Pipefile for INPUT       #####
 
